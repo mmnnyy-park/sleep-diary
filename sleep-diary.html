@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>수면 기록</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: -apple-system, 'Apple SD Gothic Neo', sans-serif; }
+body { touch-action: manipulation; }
+:root { --safe-top: env(safe-area-inset-top, 0px); --safe-bot: env(safe-area-inset-bottom, 0px); }
+#app { position: fixed; inset: 0; display: flex; flex-direction: column; overflow: hidden; transition: background 0.5s ease; }
+.status-bar { display: flex; justify-content: space-between; align-items: center; padding: calc(var(--safe-top) + 10px) 20px 0; color: white; font-size: 15px; font-weight: 600; flex-shrink: 0; }
+.header { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px 0; flex-shrink: 0; min-height: 52px; }
+.header-center { flex: 1; text-align: center; padding: 0 4px; }
+.header-title { display: block; color: white; font-size: 16px; font-weight: 700; }
+.header-sub { display: block; color: rgba(255,255,255,0.4); font-size: 10px; margin-top: 3px; line-height: 1.4; }
+.icon-btn { background: none; border: none; cursor: pointer; min-width: 40px; min-height: 40px; display: flex; align-items: center; justify-content: center; color: white; font-size: 22px; opacity: 0.7; }
+.progress-dots { display: flex; gap: 6px; justify-content: center; padding: 8px 0 2px; flex-shrink: 0; }
+.dot { width: 6px; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.2); transition: all 0.3s; }
+.dot.done { background: rgba(255,255,255,0.5); }
+.dot.active { width: 20px; background: rgba(255,255,255,0.9); }
+.content { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 8px 20px 0; overflow: hidden; min-height: 0; }
+.step-center { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; width: 100%; height: 100%; }
+.step-title { color: white; font-size: clamp(18px,5vw,22px); font-weight: 800; text-align: center; line-height: 1.3; }
+.step-title.sm { font-size: clamp(15px,4.5vw,19px); }
+.duration-box { background: rgba(255,255,255,0.1); border-radius: 10px; padding: 10px 24px; color: white; font-size: clamp(20px,6vw,26px); font-weight: 800; }
+.slider-wrap { position: relative; width: 100%; height: 72px; cursor: pointer; user-select: none; touch-action: none; }
+.sq-track { position: absolute; top: 50%; transform: translateY(-50%); left: 0; right: 0; height: 4px; background: rgba(255,255,255,0.15); border-radius: 2px; display: flex; align-items: center; justify-content: space-between; padding: 0 1px; }
+.sq-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,0.8); flex-shrink: 0; }
+.sq-thumb { position: absolute; top: 50%; transform: translate(-50%,-50%); width: 42px; height: 42px; border-radius: 50%; background: white; color: #121216; font-weight: 800; font-size: 15px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+.sq-labels { position: absolute; bottom: 0; left: 0; right: 0; display: flex; justify-content: space-between; color: rgba(255,255,255,0.5); font-size: 12px; }
+.sq-big { font-size: clamp(60px,18vw,80px); font-weight: 900; letter-spacing: -3px; transition: color 0.4s; }
+.step-timeline { display: flex; flex-direction: column; width: 100%; gap: 8px; height: 100%; }
+.step-header { display: flex; flex-direction: column; align-items: center; gap: 6px; flex-shrink: 0; }
+.timeline-wrap { display: flex; width: 100%; flex: 1; min-height: 0; justify-content: center; }
+.time-labels { display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; padding-right: 10px; color: rgba(255,255,255,0.4); font-size: 11px; min-width: 46px; pointer-events: none; }
+.track { position: relative; width: 58px; flex-shrink: 0; background: rgba(255,255,255,0.07); }
+.tick { position: absolute; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.2); }
+.tbar { position: absolute; left: 0; right: 0; }
+.handle-row { position: absolute; left: 0; right: 0; transform: translateY(-50%); z-index: 20; }
+.handle-label { position: absolute; right: calc(100% + 52px); top: 50%; transform: translateY(-50%); background: #1e2433; border-radius: 6px; padding: 5px 8px; color: white; font-size: 12px; font-weight: 700; white-space: nowrap; pointer-events: none; }
+.handle-grab { position: absolute; left: 100%; top: 50%; transform: translateY(-50%); display: flex; align-items: center; cursor: grab; padding: 12px 0; touch-action: none; }
+.handle-line { height: 3px; width: 52px; }
+.handle-knob { width: 26px; height: 26px; border-radius: 50%; background: #1e2433; border: 3px solid; box-shadow: 0 2px 10px rgba(0,0,0,0.6); }
+.num-input { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; padding: 16px; color: white; font-size: 22px; text-align: center; width: 100%; outline: none; font-family: -apple-system, sans-serif; -webkit-appearance: none; }
+.wheel-outer { position: relative; width: 100%; max-width: 240px; }
+.wheel-scroll { overflow-y: scroll; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.wheel-scroll::-webkit-scrollbar { display: none; }
+.wheel-item { display: flex; align-items: center; justify-content: center; color: white; }
+.wheel-line { position: absolute; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.25); pointer-events: none; }
+.btn-primary { width: 100%; padding: 17px; border-radius: 100px; background: rgba(255,255,255,0.9); color: #121216; font-size: 16px; font-weight: 700; border: none; cursor: pointer; font-family: -apple-system, sans-serif; -webkit-appearance: none; }
+.btn-ghost { background: none; border: none; cursor: pointer; color: rgba(255,255,255,0.45); font-size: 14px; padding: 10px; font-family: -apple-system, sans-serif; }
+.nav-bar { display: flex; gap: 12px; padding: 12px 20px calc(var(--safe-bot) + 18px); flex-shrink: 0; }
+.btn-back { height: 58px; width: 92px; border-radius: 100px; background: rgba(255,255,255,0.1); color: white; font-size: 16px; font-weight: 600; border: none; cursor: pointer; font-family: -apple-system, sans-serif; flex-shrink: 0; -webkit-appearance: none; }
+.btn-next { height: 58px; flex: 1; border-radius: 100px; background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.25); font-size: 16px; font-weight: 700; border: none; font-family: -apple-system, sans-serif; white-space: nowrap; -webkit-appearance: none; transition: background 0.2s, color 0.2s; }
+.btn-next.active { background: rgba(255,255,255,0.9); color: #121216; cursor: pointer; }
+.modal-back { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 24px; }
+.modal-box { background: #16161e; border-radius: 20px; padding: 24px; width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 16px; border: 1px solid rgba(255,255,255,0.1); }
+.modal-title { color: white; font-size: 17px; font-weight: 800; text-align: center; }
+.modal-ta { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; padding: 14px; color: white; font-size: 14px; height: 110px; resize: none; outline: none; font-family: -apple-system, sans-serif; }
+.modal-ta::placeholder { color: rgba(255,255,255,0.3); }
+.modal-btns { display: flex; gap: 12px; }
+.modal-btn { flex: 1; padding: 14px; border-radius: 10px; font-size: 15px; font-weight: 700; border: none; cursor: pointer; font-family: -apple-system, sans-serif; }
+.modal-btn.cancel { background: rgba(255,255,255,0.1); color: white; }
+.modal-btn.ok { background: rgba(255,255,255,0.9); color: #121216; }
+.summary { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; gap: 18px; overflow-y: auto; }
+.summary-emoji { font-size: 64px; }
+.summary-title { color: white; font-size: clamp(20px,6vw,26px); font-weight: 900; }
+.summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
+.summary-card { background: rgba(255,255,255,0.07); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+.sc-label { color: rgba(255,255,255,0.5); font-size: 11px; }
+.sc-val { color: white; font-size: clamp(15px,4.5vw,19px); font-weight: 800; }
+.summary-note { color: rgba(255,255,255,0.5); font-size: 13px; text-align: center; font-style: italic; line-height: 1.6; }
+.btn-reset { padding: 16px 40px; border-radius: 100px; background: rgba(255,255,255,0.9); color: #121216; font-size: 16px; font-weight: 700; border: none; cursor: pointer; font-family: -apple-system, sans-serif; -webkit-appearance: none; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+var S = { step:0, quality:5, bedHr:22, outHr:7, attHr:22.5, slHr:23, wkHr:6, count:0, mins:0, sub:0, modal:false, note:'', done:false, s2init:false, s3init:false };
+var toRef=function(h){return(h-18+24)%24;};
+var fromRef=function(r){return(r+18)%24;};
+var durBetween=function(a,b){var d=b-a;if(d<0)d+=24;return d;};
+var fmtShort=function(h){var hh=Math.floor(h),mm=Math.round((h-hh)*60),p=hh<12?'AM':'PM',dh=hh===0?12:hh>12?hh-12:hh;return mm===0?(dh+' '+p):(dh+':'+(mm<10?'0'+mm:mm)+' '+p);};
+var fmtDur=function(h){return Math.floor(h)+'시간 '+Math.round((h%1)*60)+'분';};
+var pctOf=function(h){return(toRef(h)/24)*100;};
+var GCOLS=['#5C1A1A','#6B2020','#7A2A1A','#8A4020','#8A6A20','#505050','#4A6A30','#2A7A40','#1A6A6A','#1A4A7A'];
+var QCOLS=['#c0392b','#c0392b','#e67e22','#e67e22','#f39c12','#95a5a6','#27ae60','#27ae60','#16a085','#2980b9'];
+
+function setState(patch){ Object.assign(S,patch); render(); }
+
+function canGo(){ if(S.step===4){if(S.sub===1)return S.count>0;return S.sub===-1||S.sub===2;} return true; }
+function btnLabel(){ if(S.step===4&&(S.sub===-1||S.sub===2))return '수면 기록 완료'; return '다음'; }
+
+function goNext(){
+  if(!canGo())return;
+  if(S.step===4){
+    if(S.sub===1&&S.count>0){setState({sub:2});return;}
+    if(S.sub===-1||S.sub===2){setState({modal:true});return;}
+  } else if(S.step<4){
+    var ns=S.step+1, patch={step:ns};
+    if(ns===2&&!S.s2init){patch.attHr=S.bedHr;patch.s2init=true;}
+    if(ns===3&&!S.s3init){patch.slHr=S.attHr;patch.wkHr=S.outHr;patch.s3init=true;}
+    setState(patch);
+  }
+}
+function goBack(){
+  if(S.step===4&&S.sub===2){setState({sub:1});return;}
+  if(S.step===4&&S.sub===1){setState({sub:0});return;}
+  if(S.step>0)setState({step:S.step-1});
+}
+
+function renderHandle(hr,color,emoji,id){
+  var pct=pctOf(hr);
+  return '<div class="handle-row" style="top:'+pct+'%" id="hrow-'+id+'">'+
+    '<div class="handle-label">'+emoji+' '+fmtShort(hr)+'</div>'+
+    '<div class="handle-grab" id="hgrab-'+id+'">'+
+      '<div class="handle-line" style="background:'+color+'"></div>'+
+      '<div class="handle-knob" style="border-color:'+color+'"></div>'+
+    '</div></div>';
+}
+
+function renderTimeline(title,info,inner){
+  var labels=['6 PM','10 PM','2 AM','6 AM','10 AM','2 PM','6 PM'];
+  var ticks='';for(var i=0;i<25;i++)ticks+='<div class="tick" style="top:'+(i/24*100)+'%;opacity:'+(i%4===0?0.5:0.2)+'"></div>';
+  return '<div class="step-timeline">'+
+    '<div class="step-header"><h2 class="step-title sm">'+title+'</h2><div class="duration-box">'+info+'</div></div>'+
+    '<div class="timeline-wrap">'+
+      '<div class="time-labels">'+labels.map(function(l){return'<span>'+l+'</span>';}).join('')+'</div>'+
+      '<div class="track" id="track">'+ticks+inner+'</div>'+
+    '</div></div>';
+}
+
+function renderStep(){
+  if(S.step===0){
+    var pct=((S.quality-1)/9)*100;
+    var dots=[1,2,3,4,5,6,7,8,9,10].map(function(n){return'<div class="sq-dot" style="opacity:'+(S.quality>=n?1:0.3)+'"></div>';}).join('');
+    return '<div class="step-center">'+
+      '<h2 class="step-title">수면의 질은 어땠나요?</h2>'+
+      '<div class="slider-wrap" id="sq-slider"><div class="sq-track">'+dots+'</div>'+
+        '<div class="sq-thumb" style="left:'+pct+'%">'+S.quality+'</div>'+
+        '<div class="sq-labels"><span>매우 나쁨</span><span>매우 좋음</span></div></div>'+
+      '<div class="sq-big" style="color:'+QCOLS[S.quality-1]+'">'+S.quality+'</div></div>';
+  }
+  if(S.step===1){
+    var bP=pctOf(S.bedHr),oP=pctOf(S.outHr);
+    return renderTimeline('침대에 있었던 시간',fmtDur(durBetween(S.bedHr,S.outHr)),
+      '<div class="tbar" style="top:'+Math.min(bP,oP)+'%;bottom:'+(100-Math.max(bP,oP))+'%;background:rgba(100,110,130,0.35)"></div>'+
+      renderHandle(S.bedHr,'#9CA3AF','🛏️','bed')+renderHandle(S.outHr,'#9CA3AF','🚶','out'));
+  }
+  if(S.step===2){
+    var bP=pctOf(S.bedHr),oP=pctOf(S.outHr);
+    return renderTimeline('잠을 자려고 시도한 시각은?',fmtShort(S.attHr),
+      '<div class="tbar" style="top:'+Math.min(bP,oP)+'%;bottom:'+(100-Math.max(bP,oP))+'%;background:rgba(100,110,130,0.35)"></div>'+
+      renderHandle(S.attHr,'#51A2FF','💤','att'));
+  }
+  if(S.step===3){
+    var bP=pctOf(S.bedHr),oP=pctOf(S.outHr),aP=pctOf(S.attHr),sP=pctOf(S.slHr),wP=pctOf(S.wkHr);
+    return renderTimeline('실제로 주무신 시간은?',fmtDur(durBetween(S.slHr,S.wkHr)),
+      '<div class="tbar" style="top:'+Math.min(bP,oP)+'%;bottom:'+(100-Math.max(bP,oP))+'%;background:#494D58"></div>'+
+      '<div class="tbar" style="top:'+Math.min(aP,sP)+'%;bottom:'+(100-Math.max(aP,sP))+'%;background:#6A7282"></div>'+
+      '<div class="tbar" style="top:'+Math.min(sP,wP)+'%;bottom:'+(100-Math.max(sP,wP))+'%;background:#60A5FA"></div>'+
+      renderHandle(S.slHr,'#60A5FA','😴','sl')+renderHandle(S.wkHr,'#60A5FA','⏰','wk'));
+  }
+  if(S.step===4){
+    if(S.sub===0)return '<div class="step-center"><h2 class="step-title">밤중에 깬 적이 있나요?</h2>'+
+      '<div style="display:flex;flex-direction:column;gap:12px;width:100%;align-items:center">'+
+      '<button class="btn-primary" id="btn-yes">네</button>'+
+      '<button class="btn-ghost" id="btn-no">깬 적 없이 잤어요</button></div></div>';
+    if(S.sub===-1)return '<div class="step-center"><p style="color:rgba(255,255,255,0.5);font-size:16px">깬 적 없이 잤습니다 ✓</p></div>';
+    if(S.sub===1)return '<div class="step-center" style="gap:20px"><h2 class="step-title">몇 번 깼나요?</h2>'+
+      '<input class="num-input" id="wake-count" type="number" min="1" inputmode="numeric" value="'+(S.count||'')+'" placeholder="횟수 입력">'+
+      '<button class="btn-ghost" id="btn-no">깬 적 없이 잤어요</button></div>';
+    var vals=[],items='';
+    for(var v=0;v<=180;v+=5)vals.push(v);
+    for(var i=0;i<vals.length;i++){
+      var v=vals[i],sel=v===S.mins;
+      items+='<div class="wheel-item" style="height:52px;scroll-snap-align:center;opacity:'+(sel?1:0.3)+';font-size:'+(sel?30:18)+'px;font-weight:'+(sel?700:400)+'">'+v+'분</div>';
+    }
+    return '<div class="step-center" style="gap:16px">'+
+      '<div style="text-align:center"><p style="color:rgba(255,255,255,0.5);font-size:13px;margin-bottom:6px">밤중에 '+S.count+'번 깨셨군요</p>'+
+      '<h2 class="step-title">깬 시간의 총 합은 몇 분인가요?</h2></div>'+
+      '<div class="wheel-outer"><div class="wheel-scroll" id="wheel" style="height:260px;scroll-snap-type:y mandatory">'+
+      '<div style="height:104px"></div>'+items+'<div style="height:104px"></div></div>'+
+      '<div class="wheel-line" style="top:calc(50% - 26px)"></div>'+
+      '<div class="wheel-line" style="top:calc(50% + 26px)"></div></div></div>';
+  }
+  return '';
+}
+
+function render(){
+  var app=document.getElementById('app');
+  if(!app)return;
+  if(S.done){
+    app.style.background='linear-gradient(180deg,#000 0%,#0a1628 100%)';
+    var d=durBetween(S.slHr,S.wkHr);
+    var cards=[
+      ['수면의 질',S.quality+' / 10',QCOLS[S.quality-1]],
+      ['총 수면 시간',fmtDur(d),null],
+      ['취침',fmtShort(S.slHr),null],
+      ['기상',fmtShort(S.wkHr),null],
+      ['침대 시간',fmtDur(durBetween(S.bedHr,S.outHr)),null],
+    ];
+    if(S.count>0)cards.push(['야간 각성',S.count+'회 · '+S.mins+'분',null]);
+    var cardsHtml=cards.map(function(c){return'<div class="summary-card"><span class="sc-label">'+c[0]+'</span><span class="sc-val"'+(c[2]?' style="color:'+c[2]+'"':'')+'>'+c[1]+'</span></div>';}).join('');
+    app.innerHTML='<div class="summary"><div class="summary-emoji">🌙</div><h2 class="summary-title">수면 기록 완료!</h2><div class="summary-grid">'+cardsHtml+'</div>'+(S.note?'<p class="summary-note">"'+S.note+'"</p>':'')+'<button class="btn-reset" id="btn-reset">새 기록 작성</button></div>';
+    document.getElementById('btn-reset').addEventListener('click',function(){ S={step:0,quality:5,bedHr:22,outHr:7,attHr:22.5,slHr:23,wkHr:6,count:0,mins:0,sub:0,modal:false,note:'',done:false,s2init:false,s3init:false}; render(); });
+    return;
+  }
+  var bg=S.step===0?('linear-gradient(180deg,#000 0%,'+GCOLS[S.quality-1]+' 100%)'):'linear-gradient(#010101 0%,#12121a 55%,#232532 90%,#2d2f3e 100%)';
+  app.style.background=bg;
+  var dots=[0,1,2,3,4].map(function(i){return'<div class="dot'+(i===S.step?' active':i<S.step?' done':'')+'"></div>';}).join('');
+  var modal='';
+  if(S.modal)modal='<div class="modal-back"><div class="modal-box"><h3 class="modal-title">수면에 영향을 준 사건이 있었나요?</h3><textarea class="modal-ta" id="modal-note" placeholder="선택사항입니다. 없으면 바로 완료하세요.">'+S.note+'</textarea><div class="modal-btns"><button class="modal-btn cancel" id="btn-cancel">취소</button><button class="modal-btn ok" id="btn-ok">완료</button></div></div></div>';
+  app.innerHTML=
+    '<div class="status-bar"><span>9:41</span><span>●●● 🔋</span></div>'+
+    '<div class="header">'+
+      (S.step>0?'<button class="icon-btn" id="btn-back-top">‹</button>':'<div style="min-width:40px"></div>')+
+      '<div class="header-center"><span class="header-title">수면 기록</span><span class="header-sub">11월 11일 오후 12:00 ~ 11월 12일 오전 11:59 사이의 수면을 기록해주세요</span></div>'+
+      '<button class="icon-btn" style="font-size:16px">✕</button></div>'+
+    '<div class="progress-dots">'+dots+'</div>'+
+    '<div class="content" id="content">'+renderStep()+'</div>'+
+    '<div class="nav-bar">'+(S.step>0?'<button class="btn-back" id="btn-back">이전</button>':'')+
+      '<button class="btn-next'+(canGo()?' active':'')+'" id="btn-next">'+btnLabel()+'</button></div>'+
+    modal;
+
+  // bind nav
+  var bn=document.getElementById('btn-next');
+  var bb=document.getElementById('btn-back');
+  var bbt=document.getElementById('btn-back-top');
+  if(bn)bn.addEventListener('click',goNext);
+  if(bb)bb.addEventListener('click',goBack);
+  if(bbt)bbt.addEventListener('click',goBack);
+
+  // modal
+  if(S.modal){
+    var ok=document.getElementById('btn-ok');
+    var ca=document.getElementById('btn-cancel');
+    var ta=document.getElementById('modal-note');
+    if(ok)ok.addEventListener('click',function(){var n=(document.getElementById('modal-note')||{}).value||'';setState({modal:false,note:n,done:true});});
+    if(ca)ca.addEventListener('click',function(){setState({modal:false});});
+    if(ta)ta.addEventListener('input',function(e){S.note=e.target.value;});
+  }
+
+  // step-specific
+  if(S.step===0) bindSlider();
+  if(S.step>=1&&S.step<=3) bindHandles();
+  if(S.step===4){
+    var by=document.getElementById('btn-yes');
+    var bno=document.getElementById('btn-no');
+    var wi=document.getElementById('wake-count');
+    var wh=document.getElementById('wheel');
+    if(by)by.addEventListener('click',function(){setState({sub:1});});
+    if(bno)bno.addEventListener('click',function(){setState({sub:-1,count:0,mins:0});});
+    if(wi)wi.addEventListener('input',function(e){setState({count:parseInt(e.target.value)||0});});
+    if(wh){
+      var idx=Math.floor(S.mins/5);
+      wh.scrollTop=idx*52-52*2;
+      wh.addEventListener('scroll',function(){
+        var i=Math.round((wh.scrollTop+52*2)/52);
+        var c=Math.max(0,Math.min(36,i)),v=c*5;
+        if(v!==S.mins)setState({mins:v});
+      });
+    }
+  }
+}
+
+function bindSlider(){
+  var el=document.getElementById('sq-slider');
+  if(!el)return;
+  var dragging=false;
+  function update(e){
+    var r=el.getBoundingClientRect();
+    var x=((e.touches?e.touches[0].clientX:e.clientX)-r.left);
+    var q=Math.max(1,Math.min(10,Math.round((Math.max(0,Math.min(1,x/r.width)))*9)+1));
+    if(q!==S.quality)setState({quality:q});
+  }
+  el.addEventListener('mousedown',function(e){dragging=true;update(e);});
+  el.addEventListener('touchstart',function(e){dragging=true;update(e);},{passive:true});
+  document.addEventListener('mousemove',function(e){if(dragging)update(e);});
+  document.addEventListener('touchmove',function(e){if(dragging){e.preventDefault();update(e);}},{passive:false});
+  document.addEventListener('mouseup',function(){dragging=false;});
+  document.addEventListener('touchend',function(){dragging=false;});
+}
+
+function bindHandles(){
+  var track=document.getElementById('track');
+  if(!track)return;
+  var ids=S.step===1?['bed','out']:S.step===2?['att']:['sl','wk'];
+  ids.forEach(function(id){
+    var grab=document.getElementById('hgrab-'+id);
+    if(!grab)return;
+    grab.addEventListener('mousedown',makeDrag(id,track));
+    grab.addEventListener('touchstart',makeDrag(id,track),{passive:false});
+  });
+}
+
+function makeDrag(id,track){
+  return function(e){
+    e.preventDefault(); e.stopPropagation();
+    function move(ev){
+      ev.preventDefault();
+      var cy=ev.touches?ev.touches[0].clientY:ev.clientY;
+      var r=track.getBoundingClientRect();
+      var p=Math.max(0,Math.min(1,(cy-r.top)/r.height));
+      var h=fromRef(p*24);
+      var bR=toRef(S.bedHr),oR=toRef(S.outHr),aR=toRef(S.attHr);
+      if(S.step===1){if(id==='bed')setState({bedHr:h});else setState({outHr:h});}
+      else if(S.step===2){h=fromRef(Math.max(bR,Math.min(oR,toRef(h))));setState({attHr:h});}
+      else if(S.step===3){
+        if(id==='sl')h=fromRef(Math.max(aR,Math.min(oR,toRef(h))));
+        else h=fromRef(Math.max(bR,Math.min(oR,toRef(h))));
+        if(id==='sl')setState({slHr:h});else setState({wkHr:h});
+      }
+    }
+    function up(){
+      document.removeEventListener('mousemove',move);
+      document.removeEventListener('mouseup',up);
+      document.removeEventListener('touchmove',move);
+      document.removeEventListener('touchend',up);
+    }
+    document.addEventListener('mousemove',move);
+    document.addEventListener('mouseup',up);
+    document.addEventListener('touchmove',move,{passive:false});
+    document.addEventListener('touchend',up);
+  };
+}
+
+window.addEventListener('resize',function(){
+  document.documentElement.style.setProperty('--vh',(window.innerHeight*0.01)+'px');
+});
+
+render();
+</script>
+</body>
+</html>
