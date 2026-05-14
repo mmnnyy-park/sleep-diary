@@ -9,8 +9,9 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Pretendard', -apple-system, 'Apple SD Gothic Neo', sans-serif; }
-body { touch-action: manipulation; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Pretendard', -apple-system, 'Apple SD Gothic Neo', sans-serif; touch-action: manipulation; }
+/* wheel must override body touch-action so iOS scroll works */
+.wheel-scroll { touch-action: pan-y !important; }
 :root { --safe-top: env(safe-area-inset-top, 0px); --safe-bot: env(safe-area-inset-bottom, 0px); }
 
 #app { position: fixed; inset: 0; display: flex; flex-direction: column; overflow: hidden; transition: background 0.5s ease; }
@@ -52,10 +53,15 @@ body { touch-action: manipulation; }
 .handle-line { height: 3px; width: 52px; pointer-events: none; }
 .handle-knob { width: 28px; height: 28px; border-radius: 50%; background: #1e2433; border: 3px solid; box-shadow: 0 2px 10px rgba(0,0,0,0.6); pointer-events: none; }
 
-.num-input { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; padding: 16px; color: white; font-size: 22px; text-align: center; width: 100%; outline: none; font-family: 'Pretendard', sans-serif; -webkit-appearance: none; }
+.stepper-wrap { display: flex; align-items: center; gap: 0; background: rgba(255,255,255,0.07); border-radius: 16px; overflow: hidden; border: 1px solid rgba(255,255,255,0.15); }
+.stepper-btn { width: 64px; height: 64px; background: none; border: none; color: white; font-size: 28px; cursor: pointer; font-family: 'Pretendard', sans-serif; display: flex; align-items: center; justify-content: center; -webkit-appearance: none; }
+.stepper-btn:active { background: rgba(255,255,255,0.1); }
+.stepper-val { min-width: 80px; text-align: center; color: white; font-size: 36px; font-weight: 800; font-family: 'Pretendard', sans-serif; border-left: 1px solid rgba(255,255,255,0.1); border-right: 1px solid rgba(255,255,255,0.1); padding: 0 8px; line-height: 64px; }
+
+
 
 .wheel-outer { position: relative; width: 100%; max-width: 240px; }
-.wheel-scroll { overflow-y: scroll; scrollbar-width: none; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
+.wheel-scroll { overflow-y: scroll; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 .wheel-scroll::-webkit-scrollbar { display: none; }
 .wheel-item { display: flex; align-items: center; justify-content: center; color: white; }
 .wheel-line { position: absolute; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.25); pointer-events: none; }
@@ -112,13 +118,16 @@ var fmtShort = function(h){
 var fmtDur = function(h){ return Math.floor(h)+'시간 '+Math.round((h%1)*60)+'분'; };
 var pctOf  = function(h){ return (toRef(h)/24)*100; };
 
+var fmtMins = function(m){ if(m===0) return '0분'; if(m<60) return m+'분'; var h=Math.floor(m/60),r=m%60; return r===0?(h+'시간'):(h+'시간 '+r+'분'); };
+
 var GCOLS = ['#5C1A1A','#6B2020','#7A2A1A','#8A4020','#8A6A20','#505050','#4A6A30','#2A7A40','#1A6A6A','#1A4A7A'];
 var QCOLS = ['#c0392b','#c0392b','#e67e22','#e67e22','#f39c12','#95a5a6','#27ae60','#27ae60','#16a085','#2980b9'];
 
 // ── current step tracking (to detect step changes) ────────────────
-var _lastStep = -1;
-var _lastSub  = -1;
-var _lastDone = false;
+var _lastStep  = -1;
+var _lastSub   = -1;
+var _lastDone  = false;
+var _lastModal = false;
 
 // ── update only what changed (no full innerHTML replace on same step) ──
 function update(patch){
@@ -127,8 +136,8 @@ function update(patch){
   var app = document.getElementById('app');
   if (!app) return;
 
-  // full re-render when step/sub/done changes
-  if (S.step !== _lastStep || S.sub !== _lastSub || S.done !== _lastDone){
+  // full re-render when step/sub/done/modal changes
+  if (S.step !== _lastStep || S.sub !== _lastSub || S.done !== _lastDone || S.modal !== _lastModal){
     fullRender();
     return;
   }
@@ -179,7 +188,18 @@ function updateTimeline(){
   // update handles
   if (S.step === 1){ setHandle('bed', S.bedHr); setHandle('out', S.outHr); }
   else if (S.step === 2){ setHandle('att', S.attHr); }
-  else if (S.step === 3){ setHandle('sl', S.slHr); setHandle('wk', S.wkHr); }
+  else if (S.step === 3){
+    setHandle('sl', S.slHr); setHandle('wk', S.wkHr);
+    // update latency tip
+    var tip = document.getElementById('latency-tip');
+    if (tip){
+      var latMins = Math.round(durBetween(S.attHr, S.slHr) * 60);
+      var latStr = latMins >= 60 ? (Math.floor(latMins/60)+'시간 '+(latMins%60)+'분') : (latMins+'분');
+      tip.style.top = pctOf(S.slHr) + '%';
+      var inner = tip.querySelector('div');
+      if (inner) inner.textContent = '입면지연시간: ' + latStr;
+    }
+  }
 }
 
 function setBar(id, top, bot){
@@ -204,9 +224,10 @@ function updateNav(){
 
 // ── full render (step change) ─────────────────────────────────────
 function fullRender(){
-  _lastStep = S.step;
-  _lastSub  = S.sub;
-  _lastDone = S.done;
+  _lastStep  = S.step;
+  _lastSub   = S.sub;
+  _lastDone  = S.done;
+  _lastModal = S.modal;
 
   var app = document.getElementById('app');
   if (!app) return;
@@ -273,7 +294,15 @@ function buildTimeline(title, info, stepN){
   var handles='';
   if (stepN===1){ handles+=buildHandle('bed',S.bedHr,'#9CA3AF','🛏️')+buildHandle('out',S.outHr,'#9CA3AF','🚶'); }
   if (stepN===2){ handles+=buildHandle('att',S.attHr,'#51A2FF','💤'); }
-  if (stepN===3){ handles+=buildHandle('sl',S.slHr,'#60A5FA','😴')+buildHandle('wk',S.wkHr,'#60A5FA','⏰'); }
+  if (stepN===3){ handles+=buildHandle('sl',S.slHr,'#60A5FA','😴')+buildHandle('wk',S.wkHr,'#60A5FA','⏰');
+    // sleep latency tooltip: shown above the sl handle on the right side, above the knob
+    var latMins = Math.round(durBetween(S.attHr, S.slHr) * 60);
+    var latStr = latMins >= 60 ? (Math.floor(latMins/60)+'시간 '+(latMins%60)+'분') : (latMins+'분');
+    var latPct = pctOf(S.slHr);
+    handles += '<div id="latency-tip" style="position:absolute;top:'+latPct+'%;left:100%;pointer-events:none;z-index:15;padding-left:10px;transform:translateY(-200%);">'+
+      '<div style="background:#2D3748;border-radius:6px;padding:4px 8px;color:rgba(255,255,255,0.85);font-size:11px;font-weight:600;white-space:nowrap;">입면지연시간: '+latStr+'</div>'+
+    '</div>';
+  }
   return '<div class="step-timeline">'+
     '<div class="step-header"><h2 class="step-title sm">'+title+'</h2><div class="duration-box" id="dur-box">'+info+'</div></div>'+
     '<div class="timeline-wrap">'+
@@ -298,7 +327,11 @@ function buildWake(){
     '<button class="btn-ghost" id="btn-no">깬 적 없이 잤어요</button></div></div>';
   if (S.sub===-1) return '<div class="step-center"><p style="color:rgba(255,255,255,0.5);font-size:16px">깬 적 없이 잤습니다 ✓</p></div>';
   if (S.sub===1) return '<div class="step-center" style="gap:20px"><h2 class="step-title">몇 번 깼나요?</h2>'+
-    '<input class="num-input" id="wake-count" type="number" min="1" inputmode="numeric" value="'+(S.count||'')+'" placeholder="횟수 입력">'+
+    '<div class="stepper-wrap">'+
+      '<button class="stepper-btn" id="count-down">−</button>'+
+      '<span class="stepper-val" id="stepper-val">'+(S.count||0)+'</span>'+
+      '<button class="stepper-btn" id="count-up">+</button>'+
+    '</div>'+
     '<button class="btn-ghost" id="btn-no">깬 적 없이 잤어요</button></div>';
   var items='';
   for(var v=0;v<=180;v+=5){
@@ -308,10 +341,16 @@ function buildWake(){
   return '<div class="step-center" style="gap:16px">'+
     '<div style="text-align:center"><p style="color:rgba(255,255,255,0.5);font-size:13px;margin-bottom:6px">밤중에 '+S.count+'번 깨셨군요</p>'+
     '<h2 class="step-title">깬 시간의 총 합은 몇 분인가요?</h2></div>'+
-    '<div class="wheel-outer"><div class="wheel-scroll" id="wheel" style="height:260px;scroll-snap-type:y mandatory">'+
-    '<div style="height:104px"></div>'+items+'<div style="height:104px"></div></div>'+
-    '<div class="wheel-line" style="top:calc(50% - 26px)"></div>'+
-    '<div class="wheel-line" style="top:calc(50% + 26px)"></div></div></div>';
+    '<div class="wheel-outer">'+
+      '<div class="wheel-scroll" id="wheel" style="height:260px;scroll-snap-type:y mandatory;scroll-padding:104px 0;">'+
+        '<div style="height:104px;flex-shrink:0;pointer-events:none"></div>'+
+        items+
+        '<div style="height:104px;flex-shrink:0;pointer-events:none"></div>'+
+      '</div>'+
+      '<div class="wheel-line" style="top:calc(50% - 26px)"></div>'+
+      '<div class="wheel-line" style="top:calc(50% + 26px)"></div>'+
+    '</div>'+
+  '</div>';
 }
 
 function buildModal(){
@@ -361,15 +400,16 @@ function goNext(){
 function goBack(){
   if (S.step===4&&S.sub===2){ update({sub:1}); return; }
   if (S.step===4&&S.sub===1){ update({sub:0}); return; }
+  if (S.step===4&&S.sub===-1){ update({sub:0}); return; }
   if (S.step>0) update({step:S.step-1});
 }
 
 // ── bind all events after full render ─────────────────────────────
 function bindAll(){
   var el;
-  el=document.getElementById('btn-next'); if(el) el.addEventListener('click',goNext);
-  el=document.getElementById('btn-back'); if(el) el.addEventListener('click',goBack);
-  el=document.getElementById('hdr-back'); if(el) el.addEventListener('click',goBack);
+  el=document.getElementById('btn-next'); if(el) el.addEventListener('click',function(e){ e.stopPropagation(); goNext(); });
+  el=document.getElementById('btn-back'); if(el) el.addEventListener('click',function(e){ e.stopPropagation(); goBack(); });
+  el=document.getElementById('hdr-back'); if(el) el.addEventListener('click',function(e){ e.stopPropagation(); goBack(); });
 
   if (S.step===0) bindSlider();
   if (S.step>=1&&S.step<=3) bindHandles();
@@ -377,14 +417,60 @@ function bindAll(){
   if (S.step===4){
     el=document.getElementById('btn-yes'); if(el) el.addEventListener('click',function(){ update({sub:1}); });
     el=document.getElementById('btn-no');  if(el) el.addEventListener('click',function(){ update({sub:-1,count:0,mins:0}); });
-    el=document.getElementById('wake-count'); if(el) el.addEventListener('input',function(e){ update({count:parseInt(e.target.value)||0}); });
+    // stepper buttons
+    el=document.getElementById('count-up');
+    if(el) el.addEventListener('click',function(){
+      var v = (S.count||0)+1;
+      S.count = v;
+      var sv=document.getElementById('stepper-val'); if(sv) sv.textContent=v;
+      updateNav();
+    });
+    el=document.getElementById('count-down');
+    if(el) el.addEventListener('click',function(){
+      var v = Math.max(1,(S.count||1)-1);
+      S.count = v;
+      var sv=document.getElementById('stepper-val'); if(sv) sv.textContent=v;
+      updateNav();
+    });
+    // mins stepper
+    function setMins(v){
+      v = Math.max(0, Math.min(180, v));
+      S.mins = v;
+      var el = document.getElementById('mins-val');
+      if (el) el.textContent = fmtMins(v);
+      updateNav();
+    }
+    el=document.getElementById('mins-up');   if(el) el.addEventListener('click', function(){ setMins(S.mins+5); });
+    el=document.getElementById('mins-down'); if(el) el.addEventListener('click', function(){ setMins(S.mins-5); });
+    el=document.getElementById('pre0');   if(el) el.addEventListener('click', function(){ setMins(0); });
+    el=document.getElementById('pre15');  if(el) el.addEventListener('click', function(){ setMins(15); });
+    el=document.getElementById('pre30');  if(el) el.addEventListener('click', function(){ setMins(30); });
+    el=document.getElementById('pre60');  if(el) el.addEventListener('click', function(){ setMins(60); });
     var wheel=document.getElementById('wheel');
     if (wheel){
-      wheel.scrollTop=Math.round(S.mins/5)*52-104;
-      wheel.addEventListener('scroll',function(){
-        var i=Math.round((wheel.scrollTop+104)/52);
-        var v=Math.max(0,Math.min(36,i))*5;
-        if (v!==S.mins) update({mins:v});
+      // iOS Safari needs a frame before scrollTop assignment works
+      setTimeout(function(){
+        var initIdx = Math.round(S.mins/5);
+        wheel.scrollTop = 104 + initIdx * 52 - 104; // = initIdx * 52
+      }, 50);
+
+      var scrollTimer = null;
+      wheel.addEventListener('scroll', function(){
+        clearTimeout(scrollTimer);
+        scrollTimer = setTimeout(function(){
+          // spacer=104px, item=52px → item index = (scrollTop) / 52
+          var i = Math.round(wheel.scrollTop / 52);
+          var v = Math.max(0, Math.min(36, i)) * 5;
+          S.mins = v;
+          var items = wheel.querySelectorAll('.wheel-item');
+          items.forEach(function(item, idx){
+            var iv = idx * 5;
+            item.style.opacity   = iv === v ? '1'    : '0.3';
+            item.style.fontSize  = iv === v ? '30px' : '18px';
+            item.style.fontWeight= iv === v ? '700'  : '400';
+          });
+          updateNav();
+        }, 100);
       });
     }
   }
